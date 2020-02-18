@@ -121,7 +121,7 @@ Commands:
 				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Did not find '%s'\n", playername))
 				return
 			}
-			send(s, m.ChannelID, fmt.Sprintf("Found '%s' on:\n%s", playername, sb.String()))
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Found '%s' on:\n%s", playername, sb.String()))
 
 		case "o", "online":
 			gametype := arguments
@@ -162,7 +162,9 @@ Commands:
 				fmt.Fprintf(&sb, "**%s** (%d Players)\n", server.Name, len(server.Players))
 			}
 
-			send(s, m.ChannelID, sb.String())
+			for _, line := range strings.Split(sb.String(), "\n") {
+				s.ChannelMessageSend(m.ChannelID, line)
+			}
 
 		case "op", "onlineplayers":
 			gametype := arguments
@@ -208,9 +210,9 @@ Commands:
 				}
 				fmt.Fprint(&sb, "```\n")
 
+				s.ChannelMessageSend(m.ChannelID, sb.String())
+				sb.Reset()
 			}
-
-			send(s, m.ChannelID, sb.String())
 		default:
 			return
 		}
@@ -252,32 +254,6 @@ Commands:
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
 	log.Println("Shutting down, please wait...")
-}
-
-// if the expected string is longer than discords 2000  message cap, split it and send 20 lines per message
-func send(s *discordgo.Session, ChannelID, msg string) {
-	if len(msg) < 2000 {
-		s.ChannelMessageSend(ChannelID, msg)
-		return
-	}
-
-	lines := strings.Split(msg, "\n")
-
-	var sb strings.Builder
-	for idx, line := range lines {
-		fmt.Fprintf(&sb, "%s\n", line)
-
-		// send every 20 lines
-		if idx%20 == 0 {
-			s.ChannelMessageSend(ChannelID, sb.String())
-			sb.Reset()
-		}
-	}
-
-	if sb.Len() > 0 {
-		s.ChannelMessageSend(ChannelID, sb.String())
-	}
-
 }
 
 type byPlayerCountDescending []browser.ServerInfo
