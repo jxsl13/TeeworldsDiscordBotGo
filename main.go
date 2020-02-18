@@ -254,6 +254,7 @@ Commands:
 	log.Println("Shutting down, please wait...")
 }
 
+// if the expected string is longer than discords 2000  message cap, split it and send 20 lines per message
 func send(s *discordgo.Session, ChannelID, msg string) {
 	if len(msg) < 2000 {
 		s.ChannelMessageSend(ChannelID, msg)
