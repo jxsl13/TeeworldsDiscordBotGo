@@ -58,15 +58,14 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("**%s** (%2d/%2d)\n", server.Name, server.NumClients, server.MaxClients))
+		sb.WriteString(fmt.Sprintf("**%s** (%2d/%2d)\n", Escape(server.Name), server.NumClients, server.MaxClients))
 
 		if len(server.Players) > 0 {
 
-			//sb.WriteString("```")
 			for _, player := range server.Players {
-				sb.WriteString(fmt.Sprintf("%s `%-20s %-16s`\n", Flag(player.Country), player.Name, player.Clan))
+				inlineCode := WrapInInlineCodeBlock(fmt.Sprintf("%-20s %-16s", player.Name, player.Clan))
+				sb.WriteString(fmt.Sprintf("%s %s \n", Flag(player.Country), inlineCode))
 			}
-			//sb.WriteString("```")
 		}
 
 		s.ChannelMessageSend(m.ChannelID, sb.String())
@@ -98,7 +97,7 @@ func ServersHandler(s *discordgo.Session, m *discordgo.MessageCreate, args strin
 
 	for _, server := range infos {
 
-		sb.WriteString(fmt.Sprintf("**%s** %7s\n", server.Name, fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients)))
+		sb.WriteString(fmt.Sprintf("**%s** %7s\n", Escape(server.Name), fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients)))
 
 		if sb.Len() > 1000 {
 			s.ChannelMessageSend(m.ChannelID, sb.String())
