@@ -1,26 +1,38 @@
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
-	"sort"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
-	"github.com/jxsl13/twapi/browser"
 )
 
-var (
+const (
 	errCacheEmpty = "There are currently no servers in the cache, please wait a moment and try again."
 )
 
-func main() {
+var (
+	config         = &Config{}
+	extractIPRegex = regexp.MustCompile(`([a-fA-F:.0-9]{7,40}):(\d+)`)
+)
 
+type ipPort struct {
+	IP   string
+	Port string
+}
+
+func init() {
 	env, err := godotenv.Read(".env")
 	if err != nil {
 		log.Fatal(err)
@@ -32,221 +44,132 @@ func main() {
 		log.Fatal("error: no DISCORD_TOKEN specified")
 	}
 
-	cm := browser.NewConcurrentMap(512)
+	config, err = NewBotConfig(discordToken)
 
-	dg, err := discordgo.New("Bot " + discordToken)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	dg.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+	config.Admin = env["DISCORD_ADMIN"]
 
-		// Ignore all messages created by the bot itself
-		// This isn't required in this specific example but it's a good practice.
-		if m.Author.ID == s.State.User.ID {
-			return
+	fileName := ""
+
+	flag.StringVar(&fileName, "f", "", "pass the file that contains the IPs that the bot is allowed to ping for infos.")
+	flag.Parse()
+
+	if fileName == "" {
+		flag.Usage()
+		log.Fatal("")
+	}
+
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	config.FilePath = fileName
+
+	addressSet := make(map[ipPort]bool, 1)
+	sc := bufio.NewScanner(file)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		matches := extractIPRegex.FindStringSubmatch(line)
+		if len(matches) != 3 {
+			log.Printf("'%s' invalid line format, skipping..\n", line)
+			continue
+		}
+		address := ipPort{matches[1], matches[2]}
+		addressSet[address] = true
+	}
+
+	config.ServerList = NewConcurrentServerList(len(addressSet))
+	for addr := range addressSet {
+
+		// validate IP
+		ip := net.ParseIP(addr.IP)
+		if ip == nil {
+			log.Printf("invalid IP '%s', with port '%s", ip, addr.Port)
+			continue
 		}
 
-		if !strings.HasPrefix(m.Content, "!") {
-			return
+		// validate Port
+		port, err := strconv.Atoi(addr.Port)
+		if err != nil || port < 1024 {
+			log.Printf("invalid port '%d', with IP '%s", port, ip)
+			continue
 		}
 
-		ss := strings.SplitN(m.Content[1:], " ", 2)
-		if len(ss) == 0 {
-			return
-		}
+		// add server to list
+		config.ServerList.Add(fmt.Sprintf("%s:%d", ip, port))
+	}
 
-		command := ss[0]
-		arguments := ""
+	responseTimeoutMsStr := env["SERVER_RESPONSE_TIMEOUT_MS"]
 
-		if len(ss) > 1 {
-			arguments = ss[1]
-		}
+	responseTimeoutMs, err := strconv.Atoi(responseTimeoutMsStr)
+	if err != nil || responseTimeoutMs < 5 {
+		responseTimeoutMs = 500
+	}
 
-		switch command {
-		case "help":
-			s.ChannelMessageSend(m.ChannelID, `
-Teeworlds Discord Bot by jxsl13. Have fun.
-Commands:
-**!p[layer]** <player> -  Check whether a player is currently online
-**!o[nline]** <gametype> - Find all online servers with a specific gametype
-**!o[nline]p[layers]** <gametype> - Show a list of servers and players playing a specific gametype.
-**!s[ervers]** - Shows a number of registered servers.
-`)
-		case "s", "servers":
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("There are currently %d servers online.", cm.Len()))
-		case "p", "player":
+	config.ResponseTimeout = time.Millisecond * time.Duration(responseTimeoutMs)
 
-			playername := arguments
+	config.DiscordSession.AddHandler(DiscordMessageCreateHandler)
 
-			servers := cm.Values()
+}
 
-			if len(servers) == 0 {
-				_, err := s.ChannelMessageSend(m.ChannelID, "No servers found!")
-				if err != nil {
-					log.Println("Failed to send answer.")
-				}
-				return
-			}
-			sort.Sort(byPlayerCountDescending(servers))
+// DiscordMessageCreateHandler handles server messages sent by users.
+func DiscordMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Ignore all messages created by the bot itself
+	// This isn't required in this specific example but it's a good practice.
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
 
-			var sb strings.Builder
+	if !strings.HasPrefix(m.Content, "!") {
+		return
+	}
 
-			foundPlayer := false
-			for _, server := range servers {
-				found := false
-				for _, player := range server.Players {
-					if strings.Contains(strings.ToLower(player.Name), strings.ToLower(playername)) {
-						found = true
-						break
-					}
-				}
+	ss := strings.SplitN(m.Content[1:], " ", 2)
+	if len(ss) == 0 {
+		return
+	}
 
-				if !found {
-					continue
-				}
-				foundPlayer = true
+	command := strings.ToLower(ss[0])
+	arguments := ""
 
-				fmt.Fprintf(&sb, "**%s** (%d Players):\n", server.Name, len(server.Players))
-				fmt.Fprintf(&sb, "```\n")
-				for _, player := range server.Players {
-					if strings.Contains(strings.ToLower(player.Name), strings.ToLower(playername)) {
-						fmt.Fprintf(&sb, "%-20s  %-16s\n", player.Name, player.Clan)
-					}
-				}
-				fmt.Fprintf(&sb, "```\n")
-			}
+	if len(ss) > 1 {
+		arguments = strings.TrimSpace(ss[1])
+	}
 
-			if !foundPlayer {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Did not find '%s'\n", playername))
-				return
-			}
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Found '%s' on:\n%s", playername, sb.String()))
+	switch command {
+	case "h", "help":
+		HelpHandler(s, m, arguments)
+	case "o", "online":
+		OnlineHandler(s, m, arguments)
+	case "s", "servers":
+		ServersHandler(s, m, arguments)
+	case "add":
+		AdminMessageCreateMiddleware(AddHandler)(s, m, arguments)
+	case "save":
+		AdminMessageCreateMiddleware(SaveHandler)(s, m, arguments)
+	case "delete":
+		AdminMessageCreateMiddleware(DeleteHandler)(s, m, arguments)
+	default:
+		return
+	}
+}
 
-		case "o", "online":
-			gametype := arguments
+func main() {
 
-			servers := cm.Values()
-
-			if len(servers) == 0 {
-				_, err := s.ChannelMessageSend(m.ChannelID, "There are currently no servers in the cache.")
-				if err != nil {
-					log.Println("Failed to send answer.")
-				}
-				return
-			}
-			sort.Sort(byPlayerCountDescending(servers))
-
-			resultServers := make([]*browser.ServerInfo, 0, 10)
-			for _, server := range servers {
-				server := server
-				if len(server.Players) == 0 {
-					break
-				}
-
-				if !strings.Contains(strings.ToLower(server.GameType), strings.ToLower(gametype)) {
-					continue
-				}
-
-				resultServers = append(resultServers, &server)
-			}
-
-			if len(resultServers) == 0 {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("No servers found."))
-				return
-			}
-
-			var sb strings.Builder
-
-			for _, server := range resultServers {
-				fmt.Fprintf(&sb, "**%s** (%d Players)\n", server.Name, len(server.Players))
-			}
-
-			for _, line := range strings.Split(sb.String(), "\n") {
-				s.ChannelMessageSend(m.ChannelID, line)
-			}
-
-		case "op", "onlineplayers":
-			gametype := arguments
-
-			servers := cm.Values()
-
-			if len(servers) == 0 {
-				_, err := s.ChannelMessageSend(m.ChannelID, "There are currently no servers in the cache.")
-				if err != nil {
-					log.Println("Failed to send answer.")
-				}
-				return
-			}
-			sort.Sort(byPlayerCountDescending(servers))
-
-			resultServers := make([]*browser.ServerInfo, 0, 10)
-			for _, server := range servers {
-				server := server
-				if len(server.Players) == 0 {
-					break
-				}
-
-				if !strings.Contains(strings.ToLower(server.GameType), strings.ToLower(gametype)) {
-					continue
-				}
-
-				resultServers = append(resultServers, &server)
-			}
-
-			if len(resultServers) == 0 {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("No servers found."))
-				return
-			}
-
-			var sb strings.Builder
-
-			for _, server := range resultServers {
-				fmt.Fprintf(&sb, "**%s** (%d Players)\n", server.Name, len(server.Players))
-				fmt.Fprint(&sb, "```\n")
-
-				for _, player := range server.Players {
-					fmt.Fprintf(&sb, "%-20s  %-16s\n", player.Name, player.Clan)
-				}
-				fmt.Fprint(&sb, "```\n")
-
-				s.ChannelMessageSend(m.ChannelID, sb.String())
-				sb.Reset()
-			}
-		default:
-			return
-		}
-	})
-
-	err = dg.Open()
+	err := config.Open()
 	if err != nil {
 		log.Fatalf("error: could not establish a connection to the discord api, please check your credentials")
 	}
-	defer dg.Close()
-
-	go func() {
-		num := 0
-		for {
-			num = cm.Cleanup()
-			log.Printf("cleaned up %d servers", num)
-			time.Sleep(browser.TokenExpirationDuration)
-		}
-	}()
-
-	go func() {
-		for {
-			infos := browser.ServerInfos()
-			log.Printf("updated %d server.", len(infos))
-			for _, info := range infos {
-				cm.Add(info, 20*time.Second)
-			}
-
-			// set bot status to the number of online servers.
-			dg.UpdateListeningStatus(fmt.Sprintf("%d servers", len(infos)))
-
-			log.Printf("%d servers in cache", cm.Len())
-		}
-	}()
+	defer config.Close()
 
 	// Wait here until CTRL-C or other term signal is received.
 	log.Println("Bot is now running.  Press CTRL-C to exit.")
@@ -255,9 +178,3 @@ Commands:
 	<-sc
 	log.Println("Shutting down, please wait...")
 }
-
-type byPlayerCountDescending []browser.ServerInfo
-
-func (a byPlayerCountDescending) Len() int           { return len(a) }
-func (a byPlayerCountDescending) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byPlayerCountDescending) Less(i, j int) bool { return len(a[i].Players) > len(a[j].Players) }
