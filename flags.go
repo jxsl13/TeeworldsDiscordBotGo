@@ -268,7 +268,7 @@ var (
 // Flag returns a string representation of a given flag value
 func Flag(value int) string {
 	if value <= 0 {
-		return "🏴‍"
+		return ":rainbow_flag:"
 	}
 	return ":flag_" + strings.ToLower(flags[value]) + ":"
 }
