@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// Escape user input outside of inline code blocks
-func Escape(userInput string) string {
-	replacer := strings.NewReplacer(
+var (
+	// is thread safe/goroutine safe
+	markdownReplacer = strings.NewReplacer(
 		"\\", "\\\\",
 		"`", "\\`",
 		"*", "\\*",
@@ -24,8 +24,11 @@ func Escape(userInput string) string {
 		".", "\\.",
 		"!", "\\!",
 	)
+)
 
-	return replacer.Replace(userInput)
+// Escape user input outside of inline code blocks
+func Escape(userInput string) string {
+	return markdownReplacer.Replace(userInput)
 }
 
 // WrapInInlineCodeBlock puts the user input into a inline codeblock that is properly escaped.
