@@ -122,19 +122,13 @@ func init() {
 
 }
 
-// DiscordMessageCreateHandler handles server messages sent by users.
-func DiscordMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Ignore all messages created by the bot itself
-	// This isn't required in this specific example but it's a good practice.
-	if m.Author.ID == s.State.User.ID {
+// DiscordMessageLineCreateHandler checks every line for commands
+func DiscordMessageLineCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate, line string) {
+	if !strings.HasPrefix(line, "!") {
 		return
 	}
 
-	if !strings.HasPrefix(m.Content, "!") {
-		return
-	}
-
-	ss := strings.SplitN(m.Content[1:], " ", 2)
+	ss := strings.SplitN(line[1:], " ", 2)
 	if len(ss) == 0 {
 		return
 	}
@@ -164,6 +158,27 @@ func DiscordMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreat
 	default:
 		return
 	}
+}
+
+// DiscordMessageCreateHandler handles server messages sent by users.
+func DiscordMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Ignore all messages created by the bot itself
+	// This isn't required in this specific example but it's a good practice.
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+
+	lines := strings.Split(m.Content, "\n")
+
+	for _, line := range lines {
+		DiscordMessageLineCreateHandler(s, m, line)
+
+		// only the admin is allowed to execute multiple commands at once.
+		if m.Author.String() != config.Admin {
+			break
+		}
+	}
+
 }
 
 func main() {
