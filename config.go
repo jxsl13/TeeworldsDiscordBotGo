@@ -8,11 +8,12 @@ import (
 
 // Config contains the current bot configuration and structs
 type Config struct {
-	Admin           string
-	FilePath        string
-	DiscordSession  *discordgo.Session
-	ResponseTimeout time.Duration
-	ServerList      *ConcurrentServerList
+	Admin                 string
+	FilePath              string
+	DefaultGameTypeFilter string
+	DiscordSession        *discordgo.Session
+	ResponseTimeout       time.Duration
+	ServerList            *ConcurrentServerList
 }
 
 // NewBotConfig creates a new discord configuration to work as a discord bot.

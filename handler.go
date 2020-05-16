@@ -26,7 +26,15 @@ func HelpHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) 
 	sb := strings.Builder{}
 	sb.WriteString("Teeworlds Discord Bot by jxsl13. Have fun.\n")
 	sb.WriteString("Commands:\n")
-	sb.WriteString("	**!online [gametype]**  - List all registered servers that have players playing(**!o [gametype]**).\n")
+
+	if config.DefaultGameTypeFilter != "" {
+		filter := strings.ToLower(config.DefaultGameTypeFilter)
+		formated := fmt.Sprintf("	**!online [%s]**  - List all registered servers that have players playing(**!o [%s]**).\n", filter, filter)
+		sb.WriteString(formated)
+	} else {
+		sb.WriteString("	**!online [gametype]**  - List all registered servers that have players playing(**!o [gametype]**).\n")
+	}
+
 	sb.WriteString("	**!servers** - Show all servers that are currently registered(**!s**).\n")
 	s.ChannelMessageSend(m.ChannelID, sb.String())
 }
@@ -34,6 +42,11 @@ func HelpHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) 
 // OnlineHandler handler the !online command
 func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
 	gametype := strings.ToLower(strings.TrimSpace(args))
+
+	// set default filter
+	if gametype == "" && config.DefaultGameTypeFilter != "" {
+		gametype = config.DefaultGameTypeFilter
+	}
 
 	infos := fetchServerInfos()
 

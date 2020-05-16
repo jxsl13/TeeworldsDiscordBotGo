@@ -51,6 +51,7 @@ func init() {
 	}
 
 	config.Admin = env["DISCORD_ADMIN"]
+	config.DefaultGameTypeFilter = strings.ToLower(strings.TrimSpace(env["DEFAULT_GAMETYPE_FILTER"]))
 
 	fileName := ""
 
