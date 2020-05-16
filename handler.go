@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,35 +23,21 @@ type MessageCreateMiddleware func(MessageCreateHandler) MessageCreateHandler
 
 // HelpHandler shows the help message
 func HelpHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
-
 	sb := strings.Builder{}
 	sb.WriteString("Teeworlds Discord Bot by jxsl13. Have fun.\n")
 	sb.WriteString("Commands:\n")
-	sb.WriteString("	**!online**  - List all registered servers that have players playing(**!o**).\n")
+	sb.WriteString("	**!online [gametype]**  - List all registered servers that have players playing(**!o [gametype]**).\n")
 	sb.WriteString("	**!servers** - Show all servers that are currently registered(**!s**).\n")
 	s.ChannelMessageSend(m.ChannelID, sb.String())
 }
 
 // OnlineHandler handler the !online command
 func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
-	numServers := config.ServerList.Len()
-	cm := browser.NewConcurrentMap(numServers)
+	gametype := strings.ToLower(strings.TrimSpace(args))
 
-	wg := sync.WaitGroup{}
-	wg.Add(numServers)
+	infos := fetchServerInfos()
 
-	for _, addr := range config.ServerList.List() {
-		go fetchServerInfoFromServerAddress(addr, config.ResponseTimeout, &cm, &wg)
-	}
-
-	wg.Wait()
-
-	infos := cm.Values()
-
-	sort.Sort(byPlayerCountDescending(infos))
-
-	sb := strings.Builder{}
-	sb.Grow(2000)
+	filteredServers := make([]browser.ServerInfo, 0, len(infos))
 
 	for _, server := range infos {
 
@@ -58,13 +45,32 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 			continue
 		}
 
+		if len(gametype) == 0 || (len(gametype) != 0 && strings.Contains(strings.ToLower(server.GameType), gametype)) {
+			filteredServers = append(filteredServers, server)
+		}
+	}
+
+	if len(filteredServers) == 0 {
+		s.ChannelMessageSend(m.ChannelID, "no online servers found.")
+		return
+	}
+
+	sort.Sort(byPlayerCountDescending(filteredServers))
+
+	sb := strings.Builder{}
+	sb.Grow(2000)
+
+	for _, server := range filteredServers {
+
 		sb.WriteString(fmt.Sprintf("**%s** (%2d/%2d)\n", Escape(server.Name), server.NumClients, server.MaxClients))
 
-		if len(server.Players) > 0 {
+		for _, player := range server.Players {
+			inlineCode := WrapInInlineCodeBlock(fmt.Sprintf("%-20s %-16s", player.Name, player.Clan))
+			sb.WriteString(fmt.Sprintf("%s %s \n", Flag(player.Country), inlineCode))
 
-			for _, player := range server.Players {
-				inlineCode := WrapInInlineCodeBlock(fmt.Sprintf("%-20s %-16s", player.Name, player.Clan))
-				sb.WriteString(fmt.Sprintf("%s %s \n", Flag(player.Country), inlineCode))
+			if sb.Len() > 1800 {
+				s.ChannelMessageSend(m.ChannelID, sb.String())
+				sb.Reset()
 			}
 		}
 
@@ -76,6 +82,45 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 
 // ServersHandler handles the !servers command
 func ServersHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
+	infos := fetchServerInfos()
+
+	sort.Sort(byPlayerCountDescending(infos))
+
+	sb := strings.Builder{}
+	sb.Grow(2000)
+
+	fetchedServers := 0
+	for _, server := range infos {
+		if server.Name != "" {
+			fetchedServers++
+		}
+	}
+
+	if fetchedServers == 0 {
+		s.ChannelMessageSend(m.ChannelID, "could not fetch any server infos.")
+		return
+	}
+
+	for _, server := range infos {
+
+		if server.Name == "" {
+			sb.WriteString(fmt.Sprintf("Failed to fetch: %s\n", server.Address))
+		} else {
+			sb.WriteString(fmt.Sprintf("**%s** %7s (%s)\n", Escape(server.Name), fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients), server.Address))
+		}
+
+		if sb.Len() > 1000 {
+			s.ChannelMessageSend(m.ChannelID, sb.String())
+			sb.Reset()
+		}
+	}
+
+	if sb.Len() > 0 {
+		s.ChannelMessageSend(m.ChannelID, sb.String())
+	}
+}
+
+func fetchServerInfos() []browser.ServerInfo {
 	numServers := config.ServerList.Len()
 	cm := browser.NewConcurrentMap(numServers)
 
@@ -88,26 +133,7 @@ func ServersHandler(s *discordgo.Session, m *discordgo.MessageCreate, args strin
 
 	wg.Wait()
 
-	infos := cm.Values()
-
-	sort.Sort(byPlayerCountDescending(infos))
-
-	sb := strings.Builder{}
-	sb.Grow(2000)
-
-	for _, server := range infos {
-
-		sb.WriteString(fmt.Sprintf("**%s** %7s\n", Escape(server.Name), fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients)))
-
-		if sb.Len() > 1000 {
-			s.ChannelMessageSend(m.ChannelID, sb.String())
-			sb.Reset()
-		}
-	}
-
-	if sb.Len() > 0 {
-		s.ChannelMessageSend(m.ChannelID, sb.String())
-	}
+	return cm.Values()
 }
 
 func fetchServerInfoFromServerAddress(srv *net.UDPAddr, timeout time.Duration, cm *browser.ConcurrentMap, wg *sync.WaitGroup) {
@@ -126,14 +152,17 @@ func fetchServerInfoFromServerAddress(srv *net.UDPAddr, timeout time.Duration, c
 
 	resp, err := browser.Fetch("serverinfo", conn, timeout)
 	if err != nil {
+		// no server name -> failed to fetch
+		cm.Add(browser.ServerInfo{Address: srv.String(), Name: ""}, 0)
 		return
 	}
 
 	info, err := browser.ParseServerInfo(resp, srv.String())
 	if err != nil {
+		// no server name -> failed to fetch
+		cm.Add(browser.ServerInfo{Address: srv.String(), Name: ""}, 0)
 		return
 	}
-
 	cm.Add(info, 0)
 }
 
@@ -187,6 +216,58 @@ func DeleteHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 		return
 	}
 	s.ChannelMessageSend(m.ChannelID, "Deleted.")
+}
+
+// ClearHandler handles the !clear command that removes no accessible servers.
+func ClearHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
+
+	infos := fetchServerInfos()
+
+	serverMap := make(map[string]int, len(infos))
+
+	for _, fetchedInfo := range infos {
+		if fetchedInfo.Name != "" {
+			serverMap[fetchedInfo.Address]++
+		}
+	}
+
+	retries := 3
+
+	if r, err := strconv.Atoi(strings.TrimSpace(args)); err != nil && r > 1 {
+		retries = r
+	}
+
+	for i := 0; i < retries; i++ {
+		infos := fetchServerInfos()
+
+		for _, fetchedInfo := range infos {
+			if fetchedInfo.Name != "" {
+				serverMap[fetchedInfo.Address]++
+			}
+		}
+	}
+
+	knownServers := config.ServerList.SortedList()
+
+	sb := strings.Builder{}
+
+	for _, knownServer := range knownServers {
+		address := knownServer.String()
+		if serverMap[address] == 0 {
+			config.ServerList.Delete(address)
+			sb.WriteString(fmt.Sprintf("removed: %s\n", address))
+
+			if sb.Len() > 1800 {
+				s.ChannelMessageSend(m.ChannelID, sb.String())
+				sb.Reset()
+			}
+		}
+	}
+
+	if sb.Len() > 0 {
+		s.ChannelMessageSend(m.ChannelID, sb.String())
+		sb.Reset()
+	}
 }
 
 // AdminMessageCreateMiddleware is a wrapper that wraps around specific handler functions in order to deny access to non-admin users.

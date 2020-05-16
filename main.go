@@ -158,6 +158,8 @@ func DiscordMessageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		AdminMessageCreateMiddleware(SaveHandler)(s, m, arguments)
 	case "delete":
 		AdminMessageCreateMiddleware(DeleteHandler)(s, m, arguments)
+	case "c", "clean", "clear":
+		AdminMessageCreateMiddleware(ClearHandler)(s, m, arguments)
 	default:
 		return
 	}

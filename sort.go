@@ -12,6 +12,12 @@ func (a byPlayerCountDescending) Len() int           { return len(a) }
 func (a byPlayerCountDescending) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byPlayerCountDescending) Less(i, j int) bool { return len(a[i].Players) > len(a[j].Players) }
 
+type byServerAddress []browser.ServerInfo
+
+func (a byServerAddress) Len() int           { return len(a) }
+func (a byServerAddress) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byServerAddress) Less(i, j int) bool { return a[i].Address < a[j].Address }
+
 type byAddress []*net.UDPAddr
 
 func (a byAddress) Len() int           { return len(a) }
