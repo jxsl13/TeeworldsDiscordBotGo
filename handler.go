@@ -87,8 +87,16 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 			}
 		}
 
+		// only send if threshold exceeded to send less messages with more text
+		if sb.Len() > 1700 {
+			s.ChannelMessageSend(m.ChannelID, sb.String())
+			sb.Reset()
+		}
+	}
+
+	// send remaining text
+	if sb.Len() > 0 {
 		s.ChannelMessageSend(m.ChannelID, sb.String())
-		sb.Reset()
 	}
 
 }
