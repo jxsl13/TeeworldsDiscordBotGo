@@ -23,8 +23,14 @@ DISCORD_ADMIN="jxsl13#5272"
 DEFAULT_GAMETYPE_FILTER=zCatch
 ```
 
-Run the bot
+Run the bot (the text file must exist, but can be empty)
 
 ```bash
-./TeeworldsDiscordBotGo
+./TeeworldsDiscordBotGo -f text_file_with_ips.txt
+```
+
+Show available commands
+
+```discord
+!help
 ```
