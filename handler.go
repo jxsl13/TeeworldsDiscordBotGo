@@ -75,7 +75,7 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 
 	for _, server := range filteredServers {
 
-		sb.WriteString(fmt.Sprintf("**%s** (%2d/%2d)\n", Escape(server.Name), server.NumClients, server.MaxClients))
+		sb.WriteString(fmt.Sprintf("**%s** - Map: **%s** (%d/%2d)\n", Escape(server.Name), Escape(server.Map), server.NumClients, server.MaxClients))
 
 		for _, player := range server.Players {
 			inlineCode := WrapInInlineCodeBlock(fmt.Sprintf("%-20s %-16s", player.Name, player.Clan))
@@ -119,7 +119,9 @@ func ServersHandler(s *discordgo.Session, m *discordgo.MessageCreate, args strin
 		if server.Name == "" {
 			sb.WriteString(fmt.Sprintf("Failed to fetch: %s\n", server.Address))
 		} else {
-			sb.WriteString(fmt.Sprintf("**%s** %7s (%s)\n", Escape(server.Name), fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients), server.Address))
+			playersFormat := fmt.Sprintf("(%d/%d)", server.NumClients, server.MaxClients)
+			lineFormat := fmt.Sprintf("**%s** Address: %s Map: **%s** %7s\n", Escape(server.Name), server.Address, Escape(server.Map), playersFormat)
+			sb.WriteString(lineFormat)
 		}
 
 		if sb.Len() > 1000 {
