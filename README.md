@@ -21,6 +21,9 @@ Add your discord application token to the `.env` file
 DISCORD_TOKEN=<SECRET TOKEN>
 DISCORD_ADMIN="jxsl13#5272"
 DEFAULT_GAMETYPE_FILTER=zCatch
+
+# how long to wait before saying that the server is not reachable
+SERVER_RESPONSE_TIMEOUT_MS=500
 ```
 
 Run the bot (the text file must exist, but can be empty)
