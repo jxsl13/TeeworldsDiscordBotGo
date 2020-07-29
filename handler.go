@@ -206,7 +206,7 @@ func SaveHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string) 
 	servers := config.ServerList.SortedList()
 	filePath := config.FilePath
 
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0660)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0600)
 	if err != nil {
 		s.ChannelMessageSend(m.ChannelID, "Failed to create file.")
 		return
