@@ -58,7 +58,7 @@ func OnlineHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string
 			continue
 		}
 
-		if len(gametype) == 0 || (len(gametype) != 0 && strings.Contains(strings.ToLower(server.GameType), gametype)) {
+		if gametype == "" || (gametype != "" && strings.Contains(strings.ToLower(server.GameType), gametype)) {
 			filteredServers = append(filteredServers, server)
 		}
 	}
@@ -296,7 +296,7 @@ func ClearHandler(s *discordgo.Session, m *discordgo.MessageCreate, args string)
 // AdminMessageCreateMiddleware is a wrapper that wraps around specific handler functions in order to deny access to non-admin users.
 func AdminMessageCreateMiddleware(next MessageCreateHandler) MessageCreateHandler {
 	return func(s *discordgo.Session, m *discordgo.MessageCreate, args string) {
-		if len(config.Admin) == 0 || m.Author.String() != config.Admin {
+		if config.Admin == "" || m.Author.String() != config.Admin {
 			s.ChannelMessageSend(m.ChannelID, "you are not allowed to access this command.")
 			return
 		}
